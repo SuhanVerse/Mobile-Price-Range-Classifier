@@ -1,341 +1,349 @@
-import streamlit as st
-import pandas as pd
+# Streamlit web app for Mobile Price Classification 
+
+import os
+from pathlib import Path
+from datetime import datetime
+
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import pandas as pd
+import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+
 from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-import os
-import io
 
-# 🎨 Custom theme and styling
+import joblib
+
+# ------------------------------
+# Page config and CSS
+# ------------------------------
 st.set_page_config(
     page_title="📱 Mobile Price Predictor",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 💅 Custom CSS
+# Modern CSS styling
 st.markdown("""
     <style>
-    .main {
-        padding: 2rem;
-        border-radius: 10px;
-        background-color: #1E1E1E;
+    body {
+        background-color: #121212;
+        color: #EAEAEA;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    h1, h2, h3, h4 {
+        color: #FF4B4B;
     }
     .stButton>button {
-        background-color: #FF4B4B;
+        background: linear-gradient(90deg, #FF4B4B, #FF6B6B);
         color: white;
-        border-radius: 5px;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 0.6rem 1.2rem;
+        transition: 0.3s;
     }
     .stButton>button:hover {
-        background-color: #FF2B2B;
-        transform: translateY(-2px);
+        background: linear-gradient(90deg, #e23e3e, #ff7b7b);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .card {
+        background-color: #1E1E1E;
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     }
     .footer {
-        color: #FFFFFF;
         text-align: center;
-        padding: 1.5rem;
-        background-color: #2C2C2C;
-        border-radius: 10px;
+        color: #888;
+        font-size: 0.9rem;
         margin-top: 2rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .header-content {
-        background-color: #2C2C2C;
-        color: #FFFFFF;
-        padding: 2rem;
-        border-radius: 15px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    }
-    .header-content h4 {
-        color: #FF4B4B;
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-    }
-    .header-content p {
-        color: #E0E0E0;
-        font-size: 1.1rem;
-        line-height: 1.6;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# 📌 File paths with environment variable support
-train_path = os.getenv("TRAIN_PATH", "/home/xlegion/Documents/FDS/train.csv")
-test_path = os.getenv("TEST_PATH", "/home/xlegion/Documents/FDS/test.csv")
+# ------------------------------
+# Paths
+# ------------------------------
+repo_root = Path(__file__).resolve().parent
+data_dir = repo_root / "data"
+results_dir = repo_root / "results"
+results_dir.mkdir(exist_ok=True)
 
-# 🔍 Enhanced file check
-if not os.path.exists(train_path) or not os.path.exists(test_path):
-    st.error("❌ Dataset files not found!", icon="🚨")
-    st.info("Please ensure the following files exist:")
-    st.code(f"Training data: {train_path}\nTest data: {test_path}")
-    st.stop()
+train_path = Path(os.getenv("TRAIN_PATH", data_dir / "train.csv"))
+test_path = Path(os.getenv("TEST_PATH", data_dir / "test.csv"))
 
-# 🛠 Enhanced data loading with progress
+model_path = results_dir / "svm_pipeline.joblib"
+feature_order_path = results_dir / "feature_order.csv"
+
+# ------------------------------
+# Load data
+# ------------------------------
 @st.cache_data(show_spinner=False)
-def load_data():
-    with st.spinner("Loading datasets..."):
-        df_train = pd.read_csv(train_path)
-        df_test = pd.read_csv(test_path)
-    return df_train, df_test
+def load_data(train_csv: Path, test_csv: Path):
+    if not train_csv.exists() or not test_csv.exists():
+        raise FileNotFoundError(f"Missing data files. Expected:\n- {train_csv}\n- {test_csv}")
+    return pd.read_csv(train_csv), pd.read_csv(test_csv)
 
-# 🏆 Enhanced model training with progress tracking
+# ------------------------------
+# Build or load model
+# ------------------------------
 @st.cache_resource
-def train_model(df_train):
-    with st.spinner("Training model... This may take a moment."):
-        X = df_train.drop(columns=['price_range'])
-        y = df_train['price_range']
-        
-        X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+def build_or_load_model(df_train: pd.DataFrame):
+    if model_path.exists() and feature_order_path.exists():
+        pipeline = joblib.load(model_path)
+        feature_order = pd.read_csv(feature_order_path, header=None)[0].tolist()
+        return pipeline, feature_order
 
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_val_scaled = scaler.transform(X_val)
+    X = df_train.drop(columns=["price_range"])
+    y = df_train["price_range"]
 
-        param_grid = {
-            'C': [0.1, 1, 10, 100],
-            'kernel': ['linear', 'rbf', 'poly'],
-            'gamma': ['scale', 'auto']
-        }
-        grid = GridSearchCV(SVC(probability=True), param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-        grid.fit(X_train_scaled, y_train)
+    feature_order = list(X.columns)
+    pd.Series(feature_order).to_csv(feature_order_path, index=False, header=False)
 
-        return grid.best_estimator_, scaler, X_val_scaled, y_val
+    X_train, _, y_train, _ = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
 
-# 🎯 Modern UI Components
+    pipe = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+        ("clf", SVC(probability=True, random_state=42))
+    ])
+
+    param_grid = {
+        "clf__C": [0.1, 1, 10, 100],
+        "clf__kernel": ["linear", "rbf", "poly"],
+        "clf__gamma": ["scale", "auto"]
+    }
+
+    grid = GridSearchCV(pipe, param_grid, cv=5, scoring="accuracy", n_jobs=-1)
+    grid.fit(X_train, y_train)
+
+    pipeline = grid.best_estimator_
+    joblib.dump(pipeline, model_path)
+
+    return pipeline, feature_order
+
+# ------------------------------
+# Helpers
+# ------------------------------
+def align_features(df: pd.DataFrame, feature_order: list):
+    missing = [f for f in feature_order if f not in df.columns]
+    for m in missing:
+        df[m] = np.nan
+    return df[feature_order]
+
+def predict_single(pipeline, feature_order, inputs_dict):
+    arr = np.array([[inputs_dict[name] for name in feature_order]], dtype=float)
+    pred = pipeline.predict(arr)[0]
+    proba = pipeline.predict_proba(arr)[0]
+    return pred, proba
+
+def class_label_map():
+    return {
+        0: ("Low 💰", "#28a745"),
+        1: ("Mid-Range 💎", "#ffc107"),
+        2: ("High-End ✨", "#17a2b8"),
+        3: ("Premium 👑", "#dc3545"),
+    }
+
+# ------------------------------
+# Sidebar
+# ------------------------------
+st.sidebar.header("⚙️ Configuration")
+st.sidebar.write(f"Train CSV: {train_path}")
+st.sidebar.write(f"Test CSV: {test_path}")
+
+# ------------------------------
+# Load data and model
+# ------------------------------
 st.title("📱 Mobile Price Predictor")
-st.markdown("""
-    <div class="header-content">
-        <h4>AI-Powered Mobile Price Prediction</h4>
-        <p>Experience the future of mobile price prediction with our cutting-edge AI model. Get instant, accurate price range estimates based on comprehensive device specifications and market analysis.</p>
-    </div>
-""", unsafe_allow_html=True)
 
-# 🚀 Load data with status
-with st.spinner("Initializing..."):
-    df_train, df_test = load_data()
-    model, scaler, X_val, y_val = train_model(df_train)
+with st.spinner("Loading data..."):
+    try:
+        df_train, df_test = load_data(train_path, test_path)
+    except Exception as e:
+        st.error(f"❌ {e}")
+        st.stop()
 
-# 📊 Interactive Feature Input
-st.header("🔍 Enter Mobile Features")
-tabs = st.tabs(["Single Prediction 📱", "Batch Prediction 📊"])
+with st.spinner("Building/Loading model..."):
+    pipeline, feature_order = build_or_load_model(df_train)
 
-feature_names = list(df_train.columns.drop('price_range'))
+# ------------------------------
+# Tabs
+# ------------------------------
+tabs = st.tabs(["Single Prediction 📱", "Batch Prediction 📊", "Model Performance 📈", "About ℹ️"])
 
+# ------------------------------
+# Single Prediction
+# ------------------------------
 with tabs[0]:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("🔍 Enter Mobile Specifications")
     cols = st.columns(4)
     inputs = {}
+    bool_feats = {'blue', 'dual_sim', 'four_g', 'five_g', 'touch_screen', 'wifi'}
 
-    for i, feature in enumerate(feature_names):
+    for i, feature in enumerate(feature_order):
         with cols[i % 4]:
-            if feature in ['blue', 'dual_sim', 'four_g', 'five_g', 'touch_screen', 'wifi']:
-                inputs[feature] = st.toggle(
-                    f"🔹 {feature.replace('_', ' ').title()}", 
-                    key=feature
-                )
+            if feature in bool_feats:
+                inputs[feature] = int(st.toggle(feature.replace('_', ' ').title(), value=False))
             else:
-                min_val = int(df_train[feature].min())
-                max_val = int(df_train[feature].max())
+                col_data = df_train[feature]
+                min_val = np.nanmin(col_data)
+                max_val = np.nanmax(col_data)
+                default = np.nanmedian(col_data)
 
-                # 🔥 Modern Feature Ranges
                 if feature == "battery_power":
-                    max_val = 5000
+                    max_val = max(max_val, 5000)
                 elif feature == "ram":
-                    max_val = 8000
+                    max_val = max(max_val, 8000)
                 elif feature == "n_cores":
-                    max_val = 12
+                    max_val = max(max_val, 12)
                 elif feature == "m_dep":
                     min_val = 0.0
-                    max_val = 1.0
-                    value = 0.5
+                    max_val = max(max_val, 1.0)
                     inputs[feature] = st.slider(
-                        f"📊 {feature.replace('_', ' ').title()}", 
-                        min_val, max_val, value,
-                        step=0.1,
-                        key=feature,
-                        help=f"Typical range: {min_val} - {max_val}"
+                        feature.replace('_', ' ').title(),
+                        min_value=float(min_val),
+                        max_value=float(max_val),
+                        value=float(default),
+                        step=0.1
                     )
                     continue
 
-                value = int(df_train[feature].median())
-                
                 inputs[feature] = st.slider(
-                    f"📊 {feature.replace('_', ' ').title()}", 
-                    min_val, max_val, value,
-                    key=feature,
-                    help=f"Typical range: {min_val} - {max_val}"
+                    feature.replace('_', ' ').title(),
+                    min_value=int(min_val),
+                    max_value=int(max_val),
+                    value=int(default),
+                    step=1
                 )
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        if st.button("🚀 Predict Price Range", use_container_width=True):
-            with st.spinner("Analyzing features..."):
-                try:
-                    input_array = np.array([list(inputs.values())]).astype(float)
-                    scaled_input = scaler.transform(input_array)
-                    prediction = model.predict(scaled_input)[0]
-                    proba = model.predict_proba(scaled_input)[0]
-                    
-                    # 📊 Animated result display
-                    price_ranges = {
-                        0: ("Low- 💰", "#28a745"),
-                        1: ("Mid-Range 💎", "#ffc107"),
-                        2: ("High-End ✨", "#17a2b8"),
-                        3: ("Premium 👑", "#dc3545")
-                    }
-                    
-                    result_col1, result_col2 = st.columns([2, 1])
-                    with result_col1:
-                        st.success(f"🎯 Predicted Category: {price_ranges[prediction][0]}")
-                        
-                        # Add confidence bar chart
-                        fig = go.Figure(data=[
-                            go.Bar(
-                                x=['Low-', 'Mid-Range', 'High-End', 'Premium'],
-                                y=proba * 100,
-                                marker_color=['#28a745', '#ffc107', '#17a2b8', '#dc3545']
-                            )
-                        ])
-                        fig.update_layout(
-                            title="Prediction Confidence",
-                            yaxis_title="Confidence (%)",
-                            height=300,
-                            plot_bgcolor='#2C2C2C',
-                            paper_bgcolor='#2C2C2C',
-                            font=dict(color='#FFFFFF')
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                except Exception as e:
-                    st.error(f"❌ Prediction Error: {str(e)}", icon="🚨")
+    if st.button("🚀 Predict Price Range", use_container_width=True):
+        pred, proba = predict_single(pipeline, feature_order, inputs)
+        labels = class_label_map()
+        label, color = labels[pred]
 
+        st.success(f"🎯 Predicted Category: {label}")
+        fig = go.Figure(data=[
+            go.Bar(
+                x=['Low', 'Mid-Range', 'High-End', 'Premium'],
+                y=proba * 100,
+                marker_color=['#28a745', '#ffc107', '#17a2b8', '#dc3545']
+            )
+        ])
+        fig.update_layout(title="Prediction Confidence", yaxis_title="Confidence (%)", height=320)
+        st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ------------------------------
+# Batch Prediction
+# ------------------------------
 with tabs[1]:
-    uploaded_file = st.file_uploader(
-        "📂 Upload CSV file:",
-        type=["csv"],
-        help="Upload a CSV file with the same features as the training data"
-    )
-    
-    if uploaded_file:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("📂 Upload CSV for Batch Prediction")
+    st.write("Your CSV must contain these columns:")
+    st.code(", ".join(feature_order))
+
+    uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+    if uploaded_file is not None:
         try:
             test_df = pd.read_csv(uploaded_file)
-            if not set(feature_names).issubset(test_df.columns):
-                st.error("❌ Missing required features in uploaded file!", icon="⚠️")
-                st.info("Required features:", feature_names)
-            else:
-                with st.spinner("Processing batch predictions..."):
-                    X_test = test_df[feature_names]
-                    scaled_test = scaler.transform(X_test)
-                    predictions = model.predict(scaled_test)
-                    test_df['predicted_price_range'] = predictions
+            X_test = align_features(test_df.copy(), feature_order)
+            preds = pipeline.predict(X_test)
+            test_df["predicted_price_range"] = preds
 
-                    st.success("✅ Predictions completed successfully!")
-                    
-                    # Interactive results table
-                    st.dataframe(
-                        test_df.style.background_gradient(subset=['predicted_price_range']),
-                        use_container_width=True
-                    )
+            st.success("✅ Predictions completed successfully!")
+            st.dataframe(test_df, use_container_width=True)
 
-                    # Download options
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        csv = test_df.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            "📥 Download CSV",
-                            data=csv,
-                            file_name='mobile_price_predictions.csv',
-                            mime='text/csv'
-                        )
-                    with col2:
-                        # Create Excel file in memory
-                        excel_buffer = io.BytesIO()
-                        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                            test_df.to_excel(writer, index=False)
-                        excel_buffer.seek(0)
-                        
-                        st.download_button(
-                            "📥 Download Excel",
-                            data=excel_buffer,
-                            file_name='mobile_price_predictions.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-                            
+            # Download buttons
+            csv_bytes = test_df.to_csv(index=False).encode("utf-8")
+            st.download_button("📥 Download CSV",
+                               data=csv_bytes,
+                               file_name="mobile_price_predictions.csv",
+                               mime="text/csv",
+                               use_container_width=True)
         except Exception as e:
-            st.error(f"❌ Error processing file: {str(e)}", icon="🚨")
+            st.error(f"❌ Error processing file: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# 📈 Enhanced Model Performance Section
-st.header("📈 Model Performance")
+# ------------------------------
+# Model Performance
+# ------------------------------
+with tabs[2]:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("📈 Validation Performance")
 
-# Create tabs for different metrics
-metric_tabs = st.tabs(["Accuracy 🎯", "Confusion Matrix 🔢", "Detailed Report 📊"])
-
-with metric_tabs[0]:
-    accuracy = accuracy_score(y_val, model.predict(X_val))
-    st.metric(
-        "Validation Accuracy",
-        f"{accuracy:.2%}",
-        delta_color="normal"
+    # Split again for validation metrics
+    X = df_train.drop(columns=["price_range"])
+    y = df_train["price_range"]
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-with metric_tabs[1]:
-    fig = px.imshow(
-        confusion_matrix(y_val, model.predict(X_val)),
+    y_pred = pipeline.predict(X_val)
+    acc = accuracy_score(y_val, y_pred)
+
+    # Accuracy metric
+    st.metric("Validation Accuracy", f"{acc:.2%}")
+
+    # Confusion Matrix
+    cm = confusion_matrix(y_val, y_pred)
+    fig_cm = px.imshow(
+        cm,
         labels=dict(x="Predicted Label", y="True Label", color="Count"),
-        x=['Low-Range', 'Mid-Range', 'High-End', 'Premium'],
-        y=['Low-Range', 'Mid-Range', 'High-End', 'Premium'],
+        x=['Low', 'Mid-Range', 'High-End', 'Premium'],
+        y=['Low', 'Mid-Range', 'High-End', 'Premium'],
         text_auto=True,
-        aspect="auto"
+        aspect="auto",
+        color_continuous_scale="Blues"
     )
-    fig.update_layout(
-        plot_bgcolor='#2C2C2C',
-        paper_bgcolor='#2C2C2C',
-        font=dict(color='#FFFFFF')
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    fig_cm.update_layout(title="Confusion Matrix")
+    st.plotly_chart(fig_cm, use_container_width=True)
 
-with metric_tabs[2]:
-    report = classification_report(y_val, model.predict(X_val))
-    st.code(report)
+    # Classification report
+    st.text("Detailed Classification Report")
+    st.code(classification_report(y_val, y_pred))
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ℹ️ Enhanced About Section
-st.header("ℹ️ About This App")
-with st.expander("Learn More About the Mobile Price Predictor"):
+# ------------------------------
+# About
+# ------------------------------
+with tabs[3]:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("ℹ️ About This App")
     st.markdown("""
-    ### 🤖 Advanced AI Technology
-    This app leverages a **Support Vector Machine (SVM) classifier** with optimized hyperparameters to predict mobile phone price ranges based on specifications.
-    
-    ### 📱 Feature Analysis
-    We analyze various phone specifications including:
-    - 🔋 Battery capacity (up to **5000 mAh**)
-    - 🔵 Wireless connectivity (Bluetooth, WiFi)
-    - 💾 RAM specifications (up to **8GB**)
-    - 📱 Display metrics
-    - 📷 Camera capabilities
-    - 📶 Network support (4G & 5G)
-    - 🏆 Processor details (up to **12 cores**)
-    
-    ### 🛠 Technical Stack
-    - **Frontend:** Streamlit with custom styling
-    - **Backend:** Python with scikit-learn
-    - **ML Model:** Support Vector Machine with GridSearchCV optimization
-    - **Data Processing:** Pandas & NumPy
-    
-    """)
+This Streamlit app predicts mobile phone price ranges using a Support Vector Machine (SVM) classifier.  
+It employs a robust **Pipeline** (imputation + scaling + SVM), cross-validated **GridSearchCV** for hyperparameter tuning,  
+and reproducible artifacts (saved model and feature order).
 
-# Add footer with light text on dark background
-st.markdown("""
-    <div class="footer">
-        <p style="color: #FFFFFF; font-size: 1.1rem;">Made with ❤️ by Trinity | © 2025 | Empowering Mobile Price Predictions</p>
-    </div>
-""", unsafe_allow_html=True)
+### ✨ Features
+- **Single Prediction**: Enter phone specs interactively and get instant predictions with confidence scores.
+- **Batch Prediction**: Upload a CSV of multiple phones and download predictions.
+- **Model Performance**: View validation accuracy, confusion matrix, and classification report.
+- **Reproducibility**: Model and feature order are saved in the `results/` folder for consistent predictions.
+
+### 📊 Dataset
+The model is trained on the Mobile Price Classification dataset, which includes features like:
+- 🔋 Battery capacity
+- 💾 RAM and internal memory
+- 📱 Screen size and resolution
+- 📷 Camera specs
+- 📡 Connectivity (4G, 5G, WiFi, Bluetooth)
+
+---
+""")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ------------------------------
+# Footer
+# ------------------------------
+st.markdown("<div class='footer'>Made with ❤️ by Trinity | © 2025 | Empowering Mobile Price Predictions</div>", unsafe_allow_html=True)
