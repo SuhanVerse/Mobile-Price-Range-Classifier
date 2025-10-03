@@ -1,55 +1,92 @@
-# Mobile Price Classification
+# 📱 Mobile Price Classification
 
-This app leverages a Support Vector Machine (SVM) classifier with optimized hyperparameters to predict mobile phone price ranges based on specifications.
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-red?logo=streamlit)](https://streamlit.io/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-orange?logo=scikit-learn)](https://scikit-learn.org/)
+[![Deployed](https://img.shields.io/badge/Deployed-Streamlit%20Cloud-brightgreen?logo=streamlit)](https://suhanversempc.streamlit.app/)
 
-## Table of Contents
+This project leverages a **Support Vector Machine (SVM)** classifier with optimized hyperparameters to predict mobile phone price ranges based on their specifications. It also includes a full‑fledged **Streamlit web app** for interactive predictions.
 
+🔗 **Live Demo**: [Mobile Price Predictor App](https://suhanversempc.streamlit.app/)
+
+---
+
+## 📑 Table of Contents
 - [Project Overview](#project-overview)
 - [Features](#features)
 - [Dataset](#dataset)
+- [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Model Evaluation](#model-evaluation)
 - [Results](#results)
+- [Changes Made](#changes-made)
+- [Deployment](#deployment)
+- [License](#license)
 
-## Project Overview
+---
 
-The Mobile Price Classification project aims to classify mobile phones into different price ranges using their specifications. The model is built using a Support Vector Machine (SVM) classifier, which has been optimized for better performance.
+## 🚀 Project Overview
+The **Mobile Price Classification** project aims to classify mobile phones into four price ranges (Low, Mid‑Range, High‑End, Premium) using their technical specifications.  
+The model is built with **SVM** and optimized via **GridSearchCV** for improved accuracy.  
 
-## Features
+The Streamlit app provides:
+- **Single prediction** with sliders/toggles for features.
+- **Batch prediction** via CSV upload.
+- **Model performance dashboard** with accuracy, confusion matrix, and classification report.
 
-- Predicts mobile phone price ranges based on various specifications.
-- Utilizes a Support Vector Machine (SVM) for classification.
-- Optimized hyperparameters for improved accuracy.
+---
 
-## Dataset
+## ✨ Features
+- Predicts mobile phone price ranges based on specifications.
+- Interactive **Streamlit web app** with modern UI.
+- **Single & batch predictions** supported.
+- Optimized **SVM classifier** with hyperparameter tuning.
+- Downloadable results (CSV).
+- Validation metrics and visualizations.
 
-The dataset used for this project includes various features of mobile phones, such as:
+---
 
-- Battery capacity
-- Screen size
-- RAM
-- Internal memory
-- Camera resolution
-- Mobile weight
-- Connectivity features (Bluetooth, Wi-Fi, 4G support)
+## 📊 Dataset
+The dataset includes features such as:
+- 🔋 Battery capacity  
+- 💾 RAM & internal memory  
+- 📱 Screen size & resolution  
+- 📷 Camera specs (front & primary)  
+- ⚖️ Mobile weight  
+- 📡 Connectivity (Bluetooth, Wi‑Fi, 4G, 5G, Dual SIM, Touchscreen)  
 
-## Installation
+---
 
-To set up the project, follow these steps:
+## 📂 Project Structure
 
-1. Clone the repository:
+Mobile-Price-Range-Classifier/
+│
+├── app.py                  # 🎨 Streamlit web app (main entry point)
+├── requirements.txt        # 📦 Python dependencies
+├── README.md               # 📖 Project documentation
+├── LICENSE
+├── data/                   # 📊 Datasets
+│   ├── train.csv           # Training dataset
+│   ├── test.csv            # Test dataset
+├── results/                # 📁 Saved models & outputs
+│   ├── svm_pipeline.joblib # Trained SVM pipeline
+│   ├── feature_order.csv   # Saved feature order for reproducibility
+│   └── test_predictions_*.csv # Batch prediction outputs
+├── src/                    # 📓 Jupyter notebooks for EDA & experiments
+└   └── MPC.ipynb # Model training & evaluation
 
-   ```bash
-   git clone https://github.com/SuhanVerse/Mobile-Price-Range-Classifier.git
-   cd Mobile-Price-Range-Classifier
-   ```
+---
 
-2. Install the required dependencies:
+## ⚙️ Installation
 
-   ```bash
-   pip install pandas numpy scikit-learn matplotlib seaborn
-   ```
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/SuhanVerse/Mobile-Price-Range-Classifier.git
+cd Mobile-Price-Range-Classifier
+pip install -r requirements.txt
+```
 
 ## Usage
 
