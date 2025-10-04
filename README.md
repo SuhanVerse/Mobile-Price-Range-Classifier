@@ -162,6 +162,6 @@ The app is deployed on **Streamlit Cloud** and accessible here:
 
 ## 📜 License
 
-This project is open-source and available under the [MIT License](LICENSE).
+This project is licensed under the **Apache License 2.0** – see the [LICENSE](LICENSE) file for details.
 
 ---
